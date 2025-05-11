@@ -1,29 +1,32 @@
-# app.py
 import streamlit as st
 import pandas as pd
-import numpy as np
-import seaborn as sns
 import matplotlib.pyplot as plt
-
-from sklearn.linear_model import LogisticRegression
+import seaborn as sns
+import os
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import precision_recall_curve, average_precision_score
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
-from sklearn.calibration import calibration_curve
 
 st.set_page_config(layout="wide")
-st.title("🔎 LAPD Crime Data: Weapon Use Prediction")
 
-# Upload dataset
-uploaded_file = st.file_uploader("Upload the LAPD dataset CSV (e.g., filtered_dataset.csv)", type="csv")
+st.title("🔍 LAPD Crime Data Prediction Dashboard")
+
+# Upload CSV file
+uploaded_file = st.file_uploader("Upload your filtered_dataset.csv", type="csv")
+
+# Upload EDA visualizations
+eda_files = st.file_uploader("Upload EDA Visualizations (Select multiple)", type=["png", "jpg"], accept_multiple_files=True)
+
+# Upload Predicted visualizations
+pred_files = st.file_uploader("Upload Predicted Visualizations (Select multiple)", type=["png", "jpg"], accept_multiple_files=True)
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
-    st.success(f"Loaded dataset with shape: {df.shape}")
 
+    # --- Data Preprocessing ---
     df['DATE_OCC'] = pd.to_datetime(df['DATE_OCC'], errors='coerce')
     df['YEAR'] = df['DATE_OCC'].dt.year
     df['MONTH'] = df['DATE_OCC'].dt.month
@@ -32,18 +35,26 @@ if uploaded_file:
     df['MINUTE'] = df['TIME_OCC'] % 100
 
     def get_time_of_day(hour):
-        if 5 <= hour < 12: return 'Morning'
-        elif 12 <= hour < 17: return 'Afternoon'
-        elif 17 <= hour < 22: return 'Evening'
-        else: return 'Night'
+        if 5 <= hour < 12:
+            return 'Morning'
+        elif 12 <= hour < 17:
+            return 'Afternoon'
+        elif 17 <= hour < 22:
+            return 'Evening'
+        else:
+            return 'Night'
 
     df['TIME_OF_DAY'] = df['HOUR'].apply(get_time_of_day)
     df = df[df['WEAPON_DESC'] != "Nan"]
 
     def weapon_used(weapon_desc):
-        if pd.isna(weapon_desc): return 0
-        desc = str(weapon_desc).upper()
-        return 0 if any(x in desc for x in ['STRONG-ARM', 'VERBAL THREAT', 'UNKNOWN WEAPON', 'NONE']) else 1
+        if pd.isna(weapon_desc) or weapon_desc is None:
+            return 0
+        weapon_desc = str(weapon_desc).upper()
+        if any(term in weapon_desc for term in ['STRONG-ARM', 'VERBAL THREAT', 'UNKNOWN WEAPON', 'NONE', 'PHYSICAL PRESENCE']):
+            return 0
+        else:
+            return 1
 
     df['WEAPON_USED_FLAG'] = df['WEAPON_DESC'].apply(weapon_used)
 
@@ -56,51 +67,48 @@ if uploaded_file:
     for col in ['HOUR', 'VICT_AGE', 'MONTH', 'DAY']:
         df[col] = df[col].fillna(df[col].median())
 
-    X = df[features]
-    y = df[target]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.3, random_state=42)
-
     categorical_features = ['AREA_NAME', 'TIME_OF_DAY', 'VICT_SEX', 'PREMIS_DESC', 'CRM_CD_DESC']
     numerical_features = ['HOUR', 'VICT_AGE', 'MONTH', 'DAY']
 
+    X = df[features]
+    y = df[target]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.3, random_state=42, stratify=y)
+
+    cat_pipe = Pipeline([
+        ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+    ])
+    num_pipe = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
     preprocessor = ColumnTransformer([
-        ('num', Pipeline([('imputer', SimpleImputer(strategy='median')), ('scaler', StandardScaler())]), numerical_features),
-        ('cat', Pipeline([('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-                          ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))]), categorical_features)
+        ('num', num_pipe, numerical_features),
+        ('cat', cat_pipe, categorical_features)
     ])
 
     model = Pipeline([
         ('preprocessor', preprocessor),
         ('classifier', LogisticRegression(max_iter=1000, random_state=42))
     ])
+
     model.fit(X_train, y_train)
+    df['predicted_probability'] = model.predict_proba(X[features])[:, 1]
 
-    y_pred_proba = model.predict_proba(X_test)[:, 1]
-    st.subheader("🔍 Model Evaluation: Precision-Recall Curve")
-    precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
-    ap_score = average_precision_score(y_test, y_pred_proba)
+    st.success("✅ Model trained and predictions made.")
 
-    fig1, ax1 = plt.subplots()
-    ax1.plot(recall, precision, label=f'AP = {ap_score:.3f}')
-    ax1.set_xlabel("Recall")
-    ax1.set_ylabel("Precision")
-    ax1.set_title("Precision-Recall Curve")
-    ax1.legend()
-    st.pyplot(fig1)
+    # ---------- Show EDA Visualizations ----------
+    if eda_files:
+        st.header("📊 EDA Visualizations")
+        for file in eda_files:
+            st.image(file, use_column_width=True, caption=file.name)
 
-    st.subheader("📊 Calibration Curve")
-    prob_true, prob_pred = calibration_curve(y_test, y_pred_proba, n_bins=10)
-    fig2, ax2 = plt.subplots()
-    ax2.plot([0, 1], [0, 1], "k--")
-    ax2.plot(prob_pred, prob_true, "o-")
-    ax2.set_xlabel("Predicted Probability")
-    ax2.set_ylabel("True Probability")
-    ax2.set_title("Calibration Curve")
-    st.pyplot(fig2)
-
-    st.subheader("📈 Predicted Probability Histogram")
-    fig3, ax3 = plt.subplots()
-    sns.histplot(y_pred_proba, bins=50, kde=True, ax=ax3)
-    ax3.axvline(0.5, color='red', linestyle='--')
-    ax3.set_title("Distribution of Predicted Probabilities")
-    st.pyplot(fig3)
+    # ---------- Show Predicted Visualizations ----------
+    if pred_files:
+        st.header("📈 Predicted Visualizations")
+        for file in pred_files:
+            st.image(file, use_column_width=True, caption=file.name)
+else:
+    st.info("Please upload the dataset to begin.")
