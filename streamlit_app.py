@@ -103,12 +103,12 @@ if uploaded_file:
     if eda_files:
         st.header("📊 EDA Visualizations")
         for file in eda_files:
-            st.image(file, use_column_width=True, caption=file.name)
+            st.image(file, use_container_width =True, caption=file.name)
 
     # ---------- Show Predicted Visualizations ----------
     if pred_files:
         st.header("📈 Predicted Visualizations")
         for file in pred_files:
-            st.image(file, use_column_width=True, caption=file.name)
+            st.image(file, use_container_width =True, caption=file.name)
 else:
     st.info("Please upload the dataset to begin.")
