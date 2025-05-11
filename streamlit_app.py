@@ -98,6 +98,27 @@ if uploaded_file:
     df['predicted_probability'] = model.predict_proba(X[features])[:, 1]
 
     st.success("✅ Model trained and predictions made.")
+    import streamlit as st
+import numpy as np
+import pandas as pd
+
+# Example: Assuming you've already loaded the trained model and the input features into `X_test`
+# predicted_probs = model.predict_proba(X_test)[:, 1]  # Probabilities for class 1 (weapon used)
+
+st.sidebar.header("Prediction Settings")
+threshold = st.sidebar.slider("Probability Threshold", 0.0, 1.0, 0.5, 0.01)
+
+# Convert probabilities to binary predictions using the threshold
+predicted_labels = (predicted_probs >= threshold).astype(int)
+
+# Display some results
+st.write(f"Threshold: {threshold}")
+st.write("Example predictions:")
+st.write(pd.DataFrame({
+    "Predicted Probability": predicted_probs[:10],
+    "Predicted Label": predicted_labels[:10]
+}))
+
 
     # ---------- Show EDA Visualizations ----------
     if eda_files:
