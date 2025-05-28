@@ -47,15 +47,28 @@ pip install -r requirements.txt
     """)
     st.stop()
 
-# Upload dataset
+# Upload dataset with size limit
+st.info("📝 **File Size Limits:** CSV max 200MB, Images max 50MB total")
 uploaded_file = st.file_uploader("📁 Upload filtered_dataset.csv", type="csv")
-eda_files = st.file_uploader("📂 Upload EDA visualizations (PNG)", accept_multiple_files=True, type=["png"])
+eda_files = st.file_uploader("📂 Upload EDA visualizations (PNG)", accept_multiple_files=True, type=["png", "jpg", "jpeg"])
 
 if uploaded_file:
+    # Check file size
+    file_size = uploaded_file.size
+    if file_size > 200 * 1024 * 1024:  # 200MB limit
+        st.error(f"❌ File too large ({file_size/1024/1024:.1f}MB). Please use a file smaller than 200MB.")
+        st.info("💡 Try sampling your data or filtering to recent years only")
+        st.stop()
+    
     try:
         # Load data with error handling
         df = pd.read_csv(uploaded_file)
         st.success(f"✅ Dataset loaded successfully! Shape: {df.shape}")
+        
+        # Sample large datasets
+        if len(df) > 100000:
+            df = df.sample(n=50000, random_state=42)
+            st.warning(f"⚠️ Dataset was large, showing analysis on {len(df)} sampled rows for better performance")
         
         # Show basic info about the dataset
         with st.expander("📋 Dataset Info"):
@@ -206,14 +219,21 @@ if uploaded_file:
             col1, col2 = st.columns(2)
             
             with col1:
-                # Distribution of predicted probabilities
+                # ROC Curve
+                from sklearn.metrics import roc_curve, auc
+                fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+                roc_auc = auc(fpr, tpr)
+                
                 fig, ax = plt.subplots(figsize=(8, 6))
-                sns.histplot(y_pred_proba, bins=50, kde=True, ax=ax)
-                ax.axvline(0.5, color='red', linestyle='--', label='Decision Threshold')
-                ax.set_title('Distribution of Predicted Probabilities')
-                ax.set_xlabel('Predicted Probability')
-                ax.set_ylabel('Count')
-                ax.legend()
+                ax.plot(fpr, tpr, color='darkorange', linewidth=2, label=f'ROC Curve (AUC = {roc_auc:.3f})')
+                ax.plot([0, 1], [0, 1], color='navy', linewidth=2, linestyle='--', label='Random Classifier')
+                ax.set_xlim([0.0, 1.0])
+                ax.set_ylim([0.0, 1.05])
+                ax.set_xlabel('False Positive Rate')
+                ax.set_ylabel('True Positive Rate')
+                ax.set_title('Receiver Operating Characteristic (ROC) Curve')
+                ax.legend(loc="lower right")
+                ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
                 plt.close(fig)
 
